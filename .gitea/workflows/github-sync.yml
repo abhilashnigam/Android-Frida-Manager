@@ -1,0 +1,42 @@
+name: Sync to GitHub
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+jobs:
+  deploy:
+    runs-on: portfolio
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "oathk33p3r"
+          git config user.email "abhilashnigam@gmail.com"
+
+      - name: Configure GitHub remote
+        env:
+          GITHUB_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        run: |
+          git remote add github \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/abhilashnigam/Android-Frida-Manager.git"
+
+      - name: Sync main
+        if: github.ref_type == 'branch'
+        run: |
+          echo "Syncing main to GitHub..."
+          git push github main:main
+
+      - name: Sync release tag
+        if: github.ref_type == 'tag'
+        run: |
+          echo "Syncing tag ${GITHUB_REF_NAME} to GitHub..."
+          git push github "${GITHUB_REF_NAME}:${GITHUB_REF_NAME}"
