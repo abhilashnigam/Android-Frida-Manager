@@ -1,0 +1,228 @@
+package com.abhilashnigam.fridamanager.repository
+
+import android.content.Context
+import com.abhilashnigam.fridamanager.arch.ArchDetector
+import com.abhilashnigam.fridamanager.data.SettingsStore
+import com.abhilashnigam.fridamanager.model.FridaRelease
+import com.abhilashnigam.fridamanager.network.GitHubReleaseApi
+import com.abhilashnigam.fridamanager.frida.FridaManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.tukaani.xz.XZInputStream
+import java.io.File
+
+enum class AppLoadState {
+    LOADING,
+    READY
+}
+data class MainScreenState(
+    val loadState: AppLoadState = AppLoadState.LOADING,
+    val fridaInstalled: Boolean = false,
+    val fridaRunning: Boolean = false,
+    val installedVersion: String = "",
+    val updateAvailable: Boolean = false,
+    val latestKnownVersion: String? = null,
+    val checkForUpdatesEnabled: Boolean = true
+)
+
+sealed class InstallResult {
+    data object Success : InstallResult()
+    data class Failed(val reason: String) : InstallResult()
+}
+
+class FridaRepository(
+    private val context: Context,
+    private val api: GitHubReleaseApi = GitHubReleaseApi(),
+    private val settings: SettingsStore = SettingsStore(context)
+) {
+    private val _state = MutableStateFlow(MainScreenState())
+    val state: StateFlow<MainScreenState> = _state
+
+    private val httpClient = OkHttpClient()
+
+    /** Step: Detect Architecture -> Check Frida Server -> Read Installed Version ->
+     *  Update Check Enabled? -> Latest Version? (all collapsed into one refresh, as
+     *  the finalized flowchart routes every branch back to the same Main Screen). */
+    suspend fun refresh() {
+        val checkEnabled = settings.checkForUpdates.first()
+        val installed = FridaManager.isInstalled()
+        val running = if (installed) FridaManager.isRunning() else false
+        val installedVersion = if (installed) {
+            FridaManager.installedVersion().orEmpty()
+        } else {
+            ""
+        }
+
+        var updateAvailable = false
+        var latest: String? = null
+
+        if (installed && checkEnabled) {
+            val releases = api.fetchReleases() // null on network failure -> treated as "no update info"
+            latest = releases?.firstOrNull()?.tagName
+            if (latest != null && installedVersion.isNotBlank()) {
+                updateAvailable = latest != installedVersion
+            }
+        }
+
+        _state.value = MainScreenState(
+            loadState = AppLoadState.READY,
+            fridaInstalled = installed,
+            fridaRunning = running,
+            installedVersion = installedVersion,
+            updateAvailable = updateAvailable,
+            latestKnownVersion = latest,
+            checkForUpdatesEnabled = checkEnabled
+        )
+    }
+
+    suspend fun availableReleases(): List<FridaRelease> =
+        api.fetchReleases().orEmpty()
+
+    suspend fun setCheckForUpdates(enabled: Boolean) {
+        settings.setCheckForUpdates(enabled)
+        refresh()
+    }
+
+    suspend fun toggleServer(): Boolean {
+        val running = FridaManager.isRunning()
+
+        val result = if (running) {
+            FridaManager.stop()
+        } else {
+            val ip = settings.bindAddress.first()
+            val port = settings.fridaPort.first()
+
+            FridaManager.start(ip, port)
+        }
+
+        refresh()
+        return result
+    }
+
+
+    suspend fun uninstall(): Boolean {
+        if (FridaManager.isRunning()) {
+            val stopped = FridaManager.stop()
+
+            if (!stopped) {
+                return false
+            }
+        }
+
+        if (!FridaManager.isInstalled()) {
+            return true
+        }
+
+        val uninstalled = FridaManager.uninstall()
+
+        if (!uninstalled) {
+            return false
+        }
+
+        refresh()
+        return true
+    }
+    /**
+     * Download -> Verify -> Install -> Set Active Version, per the finalized flow.
+     * Any failure at any stage returns Failed so the UI can route back to the
+     * Available Versions screen, matching the flowchart's error-recovery edges.
+     */
+    suspend fun downloadAndInstall(release: FridaRelease): InstallResult =
+        withContext(Dispatchers.IO) {
+            val arch = try {
+                ArchDetector.detectFridaArch()
+            } catch (e: ArchDetector.UnsupportedArchException) {
+                return@withContext InstallResult.Failed("Unsupported device architecture: ${e.message}")
+            }
+
+            val asset = release.assetForArch(arch)
+                ?: return@withContext InstallResult.Failed("No build for arch '$arch' in ${release.tagName}")
+
+            val compressedFile = File(context.cacheDir, asset.name)
+            val decompressedFile = File(context.cacheDir, "frida-server-${release.tagName}")
+
+            // Download
+            try {
+                val request = Request.Builder().url(asset.downloadUrl).build()
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@withContext InstallResult.Failed("Download failed: HTTP ${response.code}")
+                    }
+                    val body = response.body ?: return@withContext InstallResult.Failed("Empty response body")
+                    compressedFile.outputStream().use { out -> body.byteStream().copyTo(out) }
+                }
+            } catch (e: Exception) {
+                return@withContext InstallResult.Failed("Download failed: ${e.message}")
+            }
+
+            // Verify: confirm the download is non-empty and the declared size matches
+            // (frida doesn't publish per-asset checksums, so a size check plus a
+            // successful decompress is the practical integrity gate here).
+            if (compressedFile.length() != asset.sizeBytes) {
+                compressedFile.delete()
+                return@withContext InstallResult.Failed("Verification failed: size mismatch")
+            }
+
+            // Decompress (.xz assets use LZMA2; frida also ships plain .gz on some
+            // older tags -- this scaffold handles the common .xz case via a helper
+            // you can swap for org.tukaani:xz if you need broader coverage).
+            try {
+                decompressXz(compressedFile, decompressedFile)
+            } catch (e: Exception) {
+                compressedFile.delete()
+                return@withContext InstallResult.Failed("Verification failed: could not decompress (${e.message})")
+            } finally {
+                compressedFile.delete()
+            }
+
+            // Install: stop any running instance first, then push the new binary
+            if (FridaManager.isRunning()) {
+                FridaManager.stop()
+            }
+
+            // Remove the existing Frida server
+            if (FridaManager.isInstalled()) {
+                val uninstalled = FridaManager.uninstall()
+
+                if (!uninstalled) {
+                    decompressedFile.delete()
+                    return@withContext InstallResult.Failed(
+                        "Could not uninstall existing Frida server"
+                    )
+                }
+            }
+
+            // Install the new binary
+            val installed = FridaManager.install(
+                decompressedFile.absolutePath
+            )
+
+            if (!FridaManager.isInstalled()) {
+                return@withContext InstallResult.Failed(
+                    "Installation completed but frida-server was not found"
+                )
+            }
+
+            decompressedFile.delete()
+
+            if (!installed) {
+                return@withContext InstallResult.Failed(
+                    "Root install step failed (chmod/copy denied)"
+                )
+            }
+
+            refresh()
+            InstallResult.Success
+        }
+
+    private fun decompressXz(input: File, output: File) {
+        XZInputStream(input.inputStream().buffered()).use { xz ->
+            output.outputStream().use { out -> xz.copyTo(out) }
+        }
+    }
+}

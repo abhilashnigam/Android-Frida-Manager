@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<RelativeLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="14dp"
+    android:background="@drawable/widget_background">
+
+    <!-- Header -->
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="FRIDA MANAGER"
+        android:textColor="@android:color/white"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <!-- Server status -->
+    <LinearLayout
+        android:id="@+id/widget_status_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/widget_title"
+        android:layout_marginTop="18dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/widget_status_indicator"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:background="@drawable/widget_status_stopped" />
+
+        <TextView
+            android:id="@+id/widget_status_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="9dp"
+            android:text="SERVER STOPPED"
+            android:textColor="@android:color/white"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+    </LinearLayout>
+
+    <!-- Endpoint -->
+    <LinearLayout
+        android:id="@+id/widget_endpoint_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/widget_status_container"
+        android:layout_marginTop="14dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/widget_endpoint_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Configured at"
+            android:textColor="#8F969E"
+            android:textSize="11sp"
+            android:maxLines="1" />
+
+        <TextView
+            android:id="@+id/widget_endpoint_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="127.0.0.1:27042"
+            android:textColor="#D7DBE0"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+    </LinearLayout>
+
+    <!-- Start / Stop -->
+    <TextView
+        android:id="@+id/widget_toggle_button"
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:layout_alignParentBottom="true"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:text="START"
+        android:textColor="@android:color/white"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:background="@drawable/widget_button_start" />
+
+</RelativeLayout>
