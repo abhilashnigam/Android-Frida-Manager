@@ -27,7 +27,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.abhilashnigam.fridamanager.data.SettingsStore
+import com.abhilashnigam.fridamanager.data.FridaBinaryLocation
 import com.abhilashnigam.fridamanager.data.ThemeMode
+import com.abhilashnigam.fridamanager.repository.AnonymizerResult
 import com.abhilashnigam.fridamanager.repository.FridaRepository
 import kotlinx.coroutines.launch
 import androidx.compose.material3.DropdownMenuItem
@@ -63,6 +65,12 @@ fun SettingsScreen(
     val fridaPort by settings.fridaPort.collectAsState(
         initial = 27042
     )
+
+    val fridaBinaryLocation by settings.fridaBinaryLocation.collectAsState(
+        initial = FridaBinaryLocation(false, null, null)
+    )
+    var anonymizerBusy by remember { mutableStateOf(false) }
+    var anonymizerError by remember { mutableStateOf<String?>(null) }
 
     val networkAddresses = remember {
         NetworkInterfaceManager.getIpv4Addresses()
@@ -309,6 +317,23 @@ fun SettingsScreen(
                 }
             )
 
+            AnonymizerSettings(
+                enabled = fridaBinaryLocation.anonymized,
+                busy = anonymizerBusy,
+                errorMessage = anonymizerError,
+                onEnabledChanged = { enabled ->
+                    anonymizerBusy = true
+                    anonymizerError = null
+                    scope.launch {
+                        when (val result = repository.setAnonymizerEnabled(enabled)) {
+                            AnonymizerResult.Success -> Unit
+                            is AnonymizerResult.Failed -> anonymizerError = result.reason
+                        }
+                        anonymizerBusy = false
+                    }
+                }
+            )
+
             /*
              * ---------------------------------------------------------
              * VERSION MANAGEMENT
@@ -379,6 +404,63 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnonymizerSettings(
+    enabled: Boolean,
+    busy: Boolean,
+    errorMessage: String?,
+    onEnabledChanged: (Boolean) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Anonymize Frida binary",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Move the managed server to an app-generated path under /data/local/tmp.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = enabled,
+                    enabled = !busy,
+                    onCheckedChange = onEnabledChanged
+                )
+            }
+            if (busy) {
+                Text(
+                    text = "Moving Frida server…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            errorMessage?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
             }
         }
     }

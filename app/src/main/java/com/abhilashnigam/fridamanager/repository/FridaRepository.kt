@@ -5,6 +5,7 @@ import com.abhilashnigam.fridamanager.arch.ArchDetector
 import com.abhilashnigam.fridamanager.data.SettingsStore
 import com.abhilashnigam.fridamanager.model.FridaRelease
 import com.abhilashnigam.fridamanager.network.GitHubReleaseApi
+import com.abhilashnigam.fridamanager.network.ReleaseFetchResult
 import com.abhilashnigam.fridamanager.frida.FridaManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +36,11 @@ sealed class InstallResult {
     data class Failed(val reason: String) : InstallResult()
 }
 
+sealed class AnonymizerResult {
+    data object Success : AnonymizerResult()
+    data class Failed(val reason: String) : AnonymizerResult()
+}
+
 class FridaRepository(
     private val context: Context,
     private val api: GitHubReleaseApi = GitHubReleaseApi(),
@@ -45,15 +51,18 @@ class FridaRepository(
 
     private val httpClient = OkHttpClient()
 
+    private suspend fun binaryPath(): String = settings.fridaBinaryLocation.first().binaryPath
+
     /** Step: Detect Architecture -> Check Frida Server -> Read Installed Version ->
      *  Update Check Enabled? -> Latest Version? (all collapsed into one refresh, as
      *  the finalized flowchart routes every branch back to the same Main Screen). */
     suspend fun refresh() {
+        val binaryPath = binaryPath()
         val checkEnabled = settings.checkForUpdates.first()
-        val installed = FridaManager.isInstalled()
-        val running = if (installed) FridaManager.isRunning() else false
+        val installed = FridaManager.isInstalled(binaryPath)
+        val running = if (installed) FridaManager.isRunning(binaryPath) else false
         val installedVersion = if (installed) {
-            FridaManager.installedVersion().orEmpty()
+            FridaManager.installedVersion(binaryPath).orEmpty()
         } else {
             ""
         }
@@ -62,10 +71,14 @@ class FridaRepository(
         var latest: String? = null
 
         if (installed && checkEnabled) {
-            val releases = api.fetchReleases() // null on network failure -> treated as "no update info"
-            latest = releases?.firstOrNull()?.tagName
-            if (latest != null && installedVersion.isNotBlank()) {
-                updateAvailable = latest != installedVersion
+            when (val result = api.fetchReleases()) {
+                is ReleaseFetchResult.Success -> {
+                    latest = result.releases.firstOrNull()?.tagName
+                    if (latest != null && installedVersion.isNotBlank()) {
+                        updateAvailable = latest != installedVersion
+                    }
+                }
+                else -> Unit // Update information remains unavailable; the version screen exposes the cause.
             }
         }
 
@@ -80,8 +93,11 @@ class FridaRepository(
         )
     }
 
-    suspend fun availableReleases(): List<FridaRelease> =
-        api.fetchReleases().orEmpty()
+    suspend fun availableReleases(): ReleaseFetchResult = api.fetchReleases()
+
+    suspend fun readServerLogs(): List<String> = FridaManager.readLogs(binaryPath())
+
+    suspend fun readServerLogcat(): List<String> = FridaManager.readLogcat(binaryPath())
 
     suspend fun setCheckForUpdates(enabled: Boolean) {
         settings.setCheckForUpdates(enabled)
@@ -89,15 +105,16 @@ class FridaRepository(
     }
 
     suspend fun toggleServer(): Boolean {
-        val running = FridaManager.isRunning()
+        val binaryPath = binaryPath()
+        val running = FridaManager.isRunning(binaryPath)
 
         val result = if (running) {
-            FridaManager.stop()
+            FridaManager.stop(binaryPath)
         } else {
             val ip = settings.bindAddress.first()
             val port = settings.fridaPort.first()
 
-            FridaManager.start(ip, port)
+            FridaManager.start(binaryPath, ip, port)
         }
 
         refresh()
@@ -106,19 +123,20 @@ class FridaRepository(
 
 
     suspend fun uninstall(): Boolean {
-        if (FridaManager.isRunning()) {
-            val stopped = FridaManager.stop()
+        val binaryPath = binaryPath()
+        if (FridaManager.isRunning(binaryPath)) {
+            val stopped = FridaManager.stop(binaryPath)
 
             if (!stopped) {
                 return false
             }
         }
 
-        if (!FridaManager.isInstalled()) {
+        if (!FridaManager.isInstalled(binaryPath)) {
             return true
         }
 
-        val uninstalled = FridaManager.uninstall()
+        val uninstalled = FridaManager.uninstall(binaryPath)
 
         if (!uninstalled) {
             return false
@@ -127,6 +145,35 @@ class FridaRepository(
         refresh()
         return true
     }
+
+    /** Stops the managed server, moves the binary, then commits the new path. */
+    suspend fun setAnonymizerEnabled(enabled: Boolean): AnonymizerResult {
+        val currentLocation = settings.fridaBinaryLocation.first()
+        if (currentLocation.anonymized == enabled) return AnonymizerResult.Success
+
+        val sourcePath = currentLocation.binaryPath
+        val targetPath = if (enabled) {
+            settings.ensureAnonymizerLocation()
+                .copy(anonymized = true)
+                .binaryPath
+        } else {
+            "/data/local/tmp/frida-server"
+        }
+
+        if (FridaManager.isRunning(sourcePath) && !FridaManager.stop(sourcePath)) {
+            return AnonymizerResult.Failed("Could not stop the managed Frida server.")
+        }
+
+        if (FridaManager.isInstalled(sourcePath) &&
+            !FridaManager.moveBinary(sourcePath, targetPath)
+        ) {
+            return AnonymizerResult.Failed("Could not move the Frida binary.")
+        }
+
+        settings.setAnonymizerEnabled(enabled)
+        refresh()
+        return AnonymizerResult.Success
+    }
     /**
      * Download -> Verify -> Install -> Set Active Version, per the finalized flow.
      * Any failure at any stage returns Failed so the UI can route back to the
@@ -134,6 +181,7 @@ class FridaRepository(
      */
     suspend fun downloadAndInstall(release: FridaRelease): InstallResult =
         withContext(Dispatchers.IO) {
+            val binaryPath = binaryPath()
             val arch = try {
                 ArchDetector.detectFridaArch()
             } catch (e: ArchDetector.UnsupportedArchException) {
@@ -181,13 +229,13 @@ class FridaRepository(
             }
 
             // Install: stop any running instance first, then push the new binary
-            if (FridaManager.isRunning()) {
-                FridaManager.stop()
+            if (FridaManager.isRunning(binaryPath)) {
+                FridaManager.stop(binaryPath)
             }
 
             // Remove the existing Frida server
-            if (FridaManager.isInstalled()) {
-                val uninstalled = FridaManager.uninstall()
+            if (FridaManager.isInstalled(binaryPath)) {
+                val uninstalled = FridaManager.uninstall(binaryPath)
 
                 if (!uninstalled) {
                     decompressedFile.delete()
@@ -199,10 +247,11 @@ class FridaRepository(
 
             // Install the new binary
             val installed = FridaManager.install(
-                decompressedFile.absolutePath
+                decompressedFile.absolutePath,
+                binaryPath
             )
 
-            if (!FridaManager.isInstalled()) {
+            if (!FridaManager.isInstalled(binaryPath)) {
                 return@withContext InstallResult.Failed(
                     "Installation completed but frida-server was not found"
                 )

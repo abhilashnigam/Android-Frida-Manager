@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.view.View
 import android.widget.RemoteViews
 
 import com.abhilashnigam.fridamanager.MainActivity
@@ -39,17 +40,13 @@ class FridaWidgetProvider : AppWidgetProvider() {
 
                 val settings = SettingsStore(appContext)
 
-                val bindAddress =
-                    settings.bindAddress.first()
-
-                val port =
-                    settings.fridaPort.first()
+                val binaryLocation = settings.fridaBinaryLocation.first()
 
                 updateAllWidgets(
                     context = appContext,
                     running = running,
-                    bindAddress = bindAddress,
-                    port = port
+                    anonymizerEnabled = binaryLocation.anonymized,
+                    anonymizedPath = binaryLocation.binaryPath
                 )
             }
         }
@@ -60,8 +57,8 @@ class FridaWidgetProvider : AppWidgetProvider() {
         private fun updateAllWidgets(
             context: Context,
             running: Boolean,
-            bindAddress: String,
-            port: Int
+            anonymizerEnabled: Boolean,
+            anonymizedPath: String
         ) {
             val manager =
                 AppWidgetManager.getInstance(context)
@@ -82,8 +79,8 @@ class FridaWidgetProvider : AppWidgetProvider() {
                     manager = manager,
                     widgetId = widgetId,
                     running = running,
-                    bindAddress = bindAddress,
-                    port = port
+                    anonymizerEnabled = anonymizerEnabled,
+                    anonymizedPath = anonymizedPath
                 )
             }
         }
@@ -96,8 +93,8 @@ class FridaWidgetProvider : AppWidgetProvider() {
             manager: AppWidgetManager,
             widgetId: Int,
             running: Boolean,
-            bindAddress: String,
-            port: Int
+            anonymizerEnabled: Boolean,
+            anonymizedPath: String
         ) {
             val views =
                 RemoteViews(
@@ -130,11 +127,6 @@ class FridaWidgetProvider : AppWidgetProvider() {
                 )
 
                 views.setTextViewText(
-                    R.id.widget_endpoint_label,
-                    "Running at"
-                )
-
-                views.setTextViewText(
                     R.id.widget_toggle_button,
                     "STOP"
                 )
@@ -163,11 +155,6 @@ class FridaWidgetProvider : AppWidgetProvider() {
                 )
 
                 views.setTextViewText(
-                    R.id.widget_endpoint_label,
-                    "Configured at"
-                )
-
-                views.setTextViewText(
                     R.id.widget_toggle_button,
                     "START"
                 )
@@ -180,14 +167,18 @@ class FridaWidgetProvider : AppWidgetProvider() {
 
             /*
              * ---------------------------------------------------------
-             * Endpoint
+             * Anonymized binary path
              * ---------------------------------------------------------
              */
 
-            views.setTextViewText(
-                R.id.widget_endpoint_text,
-                "$bindAddress:$port"
+            views.setViewVisibility(
+                R.id.widget_endpoint_container,
+                if (anonymizerEnabled) View.VISIBLE else View.GONE
             )
+            if (anonymizerEnabled) {
+                views.setTextViewText(R.id.widget_endpoint_label, "ANONYMIZED BINARY")
+                views.setTextViewText(R.id.widget_endpoint_text, anonymizedPath)
+            }
 
             /*
              * ---------------------------------------------------------
@@ -278,17 +269,9 @@ class FridaWidgetProvider : AppWidgetProvider() {
                 val state =
                     repository.state.value
 
-                /*
-                 * Get configured endpoint.
-                 */
                 val settings =
                     SettingsStore(appContext)
-
-                val bindAddress =
-                    settings.bindAddress.first()
-
-                val port =
-                    settings.fridaPort.first()
+                val binaryLocation = settings.fridaBinaryLocation.first()
 
                 /*
                  * Render every widget instance.
@@ -300,8 +283,8 @@ class FridaWidgetProvider : AppWidgetProvider() {
                         manager = appWidgetManager,
                         widgetId = widgetId,
                         running = state.fridaRunning,
-                        bindAddress = bindAddress,
-                        port = port
+                        anonymizerEnabled = binaryLocation.anonymized,
+                        anonymizedPath = binaryLocation.binaryPath
                     )
                 }
 
@@ -349,17 +332,9 @@ class FridaWidgetProvider : AppWidgetProvider() {
                 val state =
                     repository.state.value
 
-                /*
-                 * Read current endpoint configuration.
-                 */
                 val settings =
                     SettingsStore(appContext)
-
-                val bindAddress =
-                    settings.bindAddress.first()
-
-                val port =
-                    settings.fridaPort.first()
+                val binaryLocation = settings.fridaBinaryLocation.first()
 
                 /*
                  * Update all widget instances.
@@ -383,8 +358,8 @@ class FridaWidgetProvider : AppWidgetProvider() {
                         manager = manager,
                         widgetId = widgetId,
                         running = state.fridaRunning,
-                        bindAddress = bindAddress,
-                        port = port
+                        anonymizerEnabled = binaryLocation.anonymized,
+                        anonymizedPath = binaryLocation.binaryPath
                     )
                 }
 

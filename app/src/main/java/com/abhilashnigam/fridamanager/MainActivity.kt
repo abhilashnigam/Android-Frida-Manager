@@ -29,6 +29,7 @@ import com.abhilashnigam.fridamanager.service.FridaMonitorService
 import com.abhilashnigam.fridamanager.ui.theme.AppScreen
 import com.abhilashnigam.fridamanager.ui.theme.FridaManagerTheme
 import com.abhilashnigam.fridamanager.ui.theme.MainScreen
+import com.abhilashnigam.fridamanager.ui.theme.LogsScreen
 import com.abhilashnigam.fridamanager.ui.theme.SettingsScreen
 import com.abhilashnigam.fridamanager.ui.theme.VersionScreen
 import com.abhilashnigam.fridamanager.widget.FridaWidgetProvider
@@ -155,6 +156,9 @@ class MainActivity : ComponentActivity() {
                                     onManageVersions = {
                                         screen = AppScreen.VERSIONS
                                     },
+                                    onViewLogs = {
+                                        screen = AppScreen.LOGS
+                                    },
                                     onOpenSettings = {
                                         screen = AppScreen.SETTINGS
                                     }
@@ -176,6 +180,13 @@ class MainActivity : ComponentActivity() {
                                     onDone = {
                                         screen = AppScreen.MAIN
                                     }
+                                )
+                            }
+
+                            AppScreen.LOGS -> {
+                                LogsScreen(
+                                    repository = repository,
+                                    onDone = { screen = AppScreen.MAIN }
                                 )
                             }
                         }

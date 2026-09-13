@@ -1,5 +1,6 @@
 package com.abhilashnigam.fridamanager.network
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -11,18 +12,36 @@ import com.abhilashnigam.fridamanager.model.FridaRelease
 
 private const val RELEASES_URL = "https://api.github.com/repos/frida/frida/releases?per_page=30"
 
+sealed interface ReleaseFetchResult {
+    data class Success(val releases: List<FridaRelease>) : ReleaseFetchResult
+    data class HttpError(val statusCode: Int) : ReleaseFetchResult
+    data object NetworkError : ReleaseFetchResult
+    data object ParseError : ReleaseFetchResult
+}
+
 class GitHubReleaseApi(private val client: OkHttpClient = OkHttpClient()) {
 
-    suspend fun fetchReleases(): List<FridaRelease>? = withContext(Dispatchers.IO) {
+    suspend fun fetchReleases(): ReleaseFetchResult = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder().url(RELEASES_URL).build()
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val body = response.body?.string() ?: return@withContext null
-                parseReleases(body)
+                if (!response.isSuccessful) {
+                    return@withContext ReleaseFetchResult.HttpError(response.code)
+                }
+
+                val body = response.body?.string()
+                    ?: return@withContext ReleaseFetchResult.ParseError
+
+                try {
+                    ReleaseFetchResult.Success(parseReleases(body))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    ReleaseFetchResult.ParseError
+                }
             }
         } catch (e: IOException) {
-            null
+            ReleaseFetchResult.NetworkError
         }
     }
 
