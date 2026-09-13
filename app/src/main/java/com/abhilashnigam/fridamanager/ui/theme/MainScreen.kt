@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.abhilashnigam.fridamanager.data.SettingsStore
+import com.abhilashnigam.fridamanager.data.FridaBinaryLocation
 import com.abhilashnigam.fridamanager.repository.FridaRepository
 import com.abhilashnigam.fridamanager.widget.FridaWidgetProvider
 import kotlinx.coroutines.launch
@@ -132,11 +133,16 @@ fun MainScreen(
             val port by settings.fridaPort.collectAsState(
                 initial = 27042
             )
+            val binaryLocation by settings.fridaBinaryLocation.collectAsState(
+                initial = FridaBinaryLocation(false, null, null)
+            )
             ServerStatusCard(
                 running = state.fridaRunning,
                 version = state.installedVersion,
                 bindAddress = bindAddress,
                 port = port,
+                anonymizerEnabled = binaryLocation.anonymized,
+                binaryPath = binaryLocation.binaryPath,
                 busy = busy,
                 onToggle = {
                     busy = true
@@ -190,6 +196,8 @@ private fun ServerStatusCard(
     version: String,
     bindAddress: String,
     port: Int,
+    anonymizerEnabled: Boolean,
+    binaryPath: String,
     busy: Boolean,
     onToggle: () -> Unit
 ) {
@@ -273,6 +281,23 @@ private fun ServerStatusCard(
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.SemiBold
                 )
+            }
+
+            if (anonymizerEnabled) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Anonymized binary",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = binaryPath,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
             }
 
             HorizontalDivider(

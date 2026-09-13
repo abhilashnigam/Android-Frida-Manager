@@ -16,39 +16,35 @@ import kotlinx.coroutines.withContext
  */
 object FridaManager {
 
-    private const val FRIDA_DIR = "/data/local/tmp"
-    private const val FRIDA_BIN = "$FRIDA_DIR/frida-server"
-
-
     /**
      * Checks whether frida-server is installed.
      */
-    suspend fun isInstalled(): Boolean {
+    suspend fun isInstalled(binaryPath: String): Boolean {
         return RootManager.execute(
-            "[ -f $FRIDA_BIN ]"
+            "[ -f ${shellQuote(binaryPath)} ]"
         )
     }
 
     /**
      * Checks whether frida-server is currently running.
      */
-    suspend fun isRunning(): Boolean {
+    suspend fun isRunning(binaryPath: String): Boolean {
         return RootManager.execute(
-            "pgrep -f frida-server >/dev/null 2>&1"
+            "pgrep -f ${shellQuote(binaryPath)} >/dev/null 2>&1"
         )
     }
 
     /**
      * Starts frida-server.
      */
-    suspend fun start(ip: String, port: Int): Boolean {
-        if (isRunning()) {
+    suspend fun start(binaryPath: String, ip: String, port: Int): Boolean {
+        if (isRunning(binaryPath)) {
             return true
         }
 
         val started = RootManager.execute(
-            "chmod 755 $FRIDA_BIN",
-            "nohup $FRIDA_BIN -l $ip:$port >/dev/null 2>&1 &"
+            "chmod 755 ${shellQuote(binaryPath)}",
+            "nohup ${shellQuote(binaryPath)} -l ${shellQuote("$ip:$port")} >/dev/null 2>&1 &"
         )
 
         if (!started) {
@@ -60,19 +56,19 @@ object FridaManager {
             Thread.sleep(500)
         }
 
-        return isRunning()
+        return isRunning(binaryPath)
     }
 
     /**
      * Stops frida-server.
      */
-    suspend fun stop(): Boolean {
-        if (!isRunning()) {
+    suspend fun stop(binaryPath: String): Boolean {
+        if (!isRunning(binaryPath)) {
             return true
         }
 
         val stopped = RootManager.execute(
-            "pkill -f frida-server"
+            "pkill -f ${shellQuote(binaryPath)}"
         )
 
         if (!stopped) {
@@ -83,7 +79,7 @@ object FridaManager {
             Thread.sleep(300)
         }
 
-        return !isRunning()
+        return !isRunning(binaryPath)
     }
 
     /**
@@ -93,28 +89,30 @@ object FridaManager {
      * for example a downloaded file in the application's
      * cache directory.
      */
-    suspend fun install(sourcePath: String): Boolean {
+    suspend fun install(sourcePath: String, binaryPath: String): Boolean {
+        val parentPath = binaryPath.substringBeforeLast('/')
         return RootManager.execute(
-            "cp \"$sourcePath\" \"$FRIDA_BIN\"",
-            "chmod 755 \"$FRIDA_BIN\""
+            "mkdir -p ${shellQuote(parentPath)}",
+            "cp ${shellQuote(sourcePath)} ${shellQuote(binaryPath)}",
+            "chmod 755 ${shellQuote(binaryPath)}"
         )
     }
 
     /**
      * Uninstall the currently installed frida-server binary.
      */
-    suspend fun uninstall(): Boolean {
+    suspend fun uninstall(binaryPath: String): Boolean {
         return RootManager.execute(
-            "rm -f \"$FRIDA_BIN\""
+            "rm -f ${shellQuote(binaryPath)}"
         )
     }
 
     /**
      * Returns the installed frida-server version.
      */
-    suspend fun installedVersion(): String? {
+    suspend fun installedVersion(binaryPath: String): String? {
         val output = RootManager.executeForOutput(
-            "$FRIDA_BIN --version"
+            "${shellQuote(binaryPath)} --version"
         )
 
         return output
@@ -122,4 +120,16 @@ object FridaManager {
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
     }
+
+    /** Moves a stopped binary without changing its mode bits or ownership. */
+    suspend fun moveBinary(sourcePath: String, destinationPath: String): Boolean {
+        val destinationDirectory = destinationPath.substringBeforeLast('/')
+        return RootManager.execute(
+            "mkdir -p ${shellQuote(destinationDirectory)}",
+            "mv ${shellQuote(sourcePath)} ${shellQuote(destinationPath)}",
+            "[ -f ${shellQuote(destinationPath)} ]"
+        )
+    }
+
+    private fun shellQuote(value: String): String = "'${value.replace("'", "'\\\"'\\\"'")}'"
 }

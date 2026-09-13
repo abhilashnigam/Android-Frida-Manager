@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.abhilashnigam.fridamanager.data.SettingsStore
 import com.abhilashnigam.fridamanager.frida.FridaManager
 import com.abhilashnigam.fridamanager.widget.FridaWidgetProvider
 import kotlinx.coroutines.CoroutineScope
@@ -16,6 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 private const val CHANNEL_ID = "frida_monitor"
 private const val NOTIFICATION_ID = 1
@@ -31,6 +33,7 @@ private const val POLL_INTERVAL_MS = 3000L
 class FridaMonitorService : Service() {
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
+    private val settings by lazy { SettingsStore(applicationContext) }
 
     override fun onCreate() {
         super.onCreate()
@@ -41,7 +44,8 @@ class FridaMonitorService : Service() {
 
     private suspend fun pollLoop() {
         while (true) {
-            val running = FridaManager.isRunning()
+            val binaryPath = settings.fridaBinaryLocation.first().binaryPath
+            val running = FridaManager.isRunning(binaryPath)
             FridaWidgetProvider.pushStatusUpdate(applicationContext, running)
             delay(POLL_INTERVAL_MS)
         }

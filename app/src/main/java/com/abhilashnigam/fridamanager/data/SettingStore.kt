@@ -7,7 +7,9 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import java.security.SecureRandom
 
 private val Context.dataStore by preferencesDataStore(
     name = "frida_manager_settings"
@@ -24,6 +26,33 @@ private val KEY_BIND_ADDRESS =
 
 private val KEY_FRIDA_PORT =
     intPreferencesKey("frida_port")
+
+private val KEY_ANONYMIZER_ENABLED =
+    booleanPreferencesKey("anonymizer_enabled")
+
+private val KEY_ANONYMIZER_DIRECTORY =
+    stringPreferencesKey("anonymizer_directory")
+
+private val KEY_ANONYMIZER_BINARY =
+    stringPreferencesKey("anonymizer_binary")
+
+private const val FRIDA_TMP_DIR = "/data/local/tmp"
+private const val DEFAULT_FRIDA_BINARY = "$FRIDA_TMP_DIR/frida-server"
+private const val RANDOM_NAME_LENGTH = 16
+private const val ALPHANUMERIC = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+data class FridaBinaryLocation(
+    val anonymized: Boolean,
+    val directoryName: String?,
+    val binaryName: String?
+) {
+    val binaryPath: String
+        get() = if (anonymized && directoryName != null && binaryName != null) {
+            "$FRIDA_TMP_DIR/$directoryName/$binaryName"
+        } else {
+            DEFAULT_FRIDA_BINARY
+        }
+}
 
 enum class ThemeMode {
     SYSTEM,
@@ -84,6 +113,19 @@ class SettingsStore(
                 prefs[KEY_FRIDA_PORT] ?: 27042
             }
 
+    /** The persisted path of the managed Frida binary. */
+    val fridaBinaryLocation: Flow<FridaBinaryLocation> =
+        context.dataStore.data.map { prefs ->
+            val enabled = prefs[KEY_ANONYMIZER_ENABLED] ?: false
+            val directory = prefs[KEY_ANONYMIZER_DIRECTORY]
+            val binary = prefs[KEY_ANONYMIZER_BINARY]
+            FridaBinaryLocation(
+                anonymized = enabled && isValidRandomName(directory) && isValidRandomName(binary),
+                directoryName = directory,
+                binaryName = binary
+            )
+        }
+
     /**
      * Enables or disables checking for newer Frida releases.
      */
@@ -132,11 +174,56 @@ class SettingsStore(
         }
     }
 
+    /**
+     * Enables or disables use of an opaque, app-managed binary path. Names are
+     * created once with SecureRandom and retained so the install location survives
+     * process death and device restarts.
+     */
+    suspend fun setAnonymizerEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            if (enabled) {
+                if (!isValidRandomName(prefs[KEY_ANONYMIZER_DIRECTORY])) {
+                    prefs[KEY_ANONYMIZER_DIRECTORY] = generateRandomName()
+                }
+                if (!isValidRandomName(prefs[KEY_ANONYMIZER_BINARY])) {
+                    prefs[KEY_ANONYMIZER_BINARY] = generateRandomName()
+                }
+            }
+            prefs[KEY_ANONYMIZER_ENABLED] = enabled
+        }
+    }
+
+    /** Ensures persisted anonymizer names exist without switching the active path. */
+    suspend fun ensureAnonymizerLocation(): FridaBinaryLocation {
+        context.dataStore.edit { prefs ->
+            if (!isValidRandomName(prefs[KEY_ANONYMIZER_DIRECTORY])) {
+                prefs[KEY_ANONYMIZER_DIRECTORY] = generateRandomName()
+            }
+            if (!isValidRandomName(prefs[KEY_ANONYMIZER_BINARY])) {
+                prefs[KEY_ANONYMIZER_BINARY] = generateRandomName()
+            }
+        }
+        return fridaBinaryLocation.first()
+    }
+
     private fun isValidIpv4(address: String): Boolean {
         val ipv4Regex = Regex(
             """^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$"""
         )
 
         return ipv4Regex.matches(address)
+    }
+
+    private fun generateRandomName(): String = buildString(RANDOM_NAME_LENGTH) {
+        repeat(RANDOM_NAME_LENGTH) {
+            append(ALPHANUMERIC[SecureRandomHolder.instance.nextInt(ALPHANUMERIC.length)])
+        }
+    }
+
+    private fun isValidRandomName(value: String?): Boolean =
+        value?.length == RANDOM_NAME_LENGTH && value.all { it in ALPHANUMERIC }
+
+    private object SecureRandomHolder {
+        val instance = SecureRandom()
     }
 }
