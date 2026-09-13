@@ -95,6 +95,10 @@ class FridaRepository(
 
     suspend fun availableReleases(): ReleaseFetchResult = api.fetchReleases()
 
+    suspend fun readServerLogs(): List<String> = FridaManager.readLogs(binaryPath())
+
+    suspend fun readServerLogcat(): List<String> = FridaManager.readLogcat(binaryPath())
+
     suspend fun setCheckForUpdates(enabled: Boolean) {
         settings.setCheckForUpdates(enabled)
         refresh()

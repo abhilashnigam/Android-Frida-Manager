@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
 fun MainScreen(
     repository: FridaRepository,
     onManageVersions: () -> Unit,
+    onViewLogs: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
     val state by repository.state.collectAsState()
@@ -179,8 +180,9 @@ fun MainScreen(
              * VERSION MANAGEMENT
              * ---------------------------------------------------------
              */
-            VersionManagementCard(
-                onManageVersions = onManageVersions
+            MainActions(
+                onManageVersions = onManageVersions,
+                onViewLogs = onViewLogs
             )
         }
     }
@@ -504,49 +506,35 @@ private fun UpdateCard(
 
 
 /**
- * Version management entry point.
+ * Bottom-level actions for server management and diagnostics.
  */
 @Composable
-private fun VersionManagementCard(
-    onManageVersions: () -> Unit
+private fun MainActions(
+    onManageVersions: () -> Unit,
+    onViewLogs: () -> Unit
 ) {
-    Surface(
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(
+        OutlinedButton(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = 20.dp,
-                    vertical = 18.dp
-                ),
-            verticalAlignment = Alignment.CenterVertically
+                .weight(1f)
+                .height(50.dp),
+            onClick = onManageVersions,
+            shape = RoundedCornerShape(14.dp)
         ) {
+            Text("MANAGE VERSIONS")
+        }
 
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = "Manage Versions",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                Text(
-                    text = "Install or switch between Frida releases",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            TextButton(
-                onClick = onManageVersions
-            ) {
-                Text("OPEN")
-            }
+        Button(
+            modifier = Modifier
+                .weight(1f)
+                .height(50.dp),
+            onClick = onViewLogs,
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Text("VIEW LOGS")
         }
     }
 }

@@ -39,15 +39,18 @@ object FridaManager {
      */
     suspend fun start(binaryPath: String, ip: String, port: Int): Boolean {
         if (isRunning(binaryPath)) {
+            appendLog(binaryPath, "Start requested; server is already running.")
             return true
         }
 
+        appendLog(binaryPath, "Starting frida-server on $ip:$port.")
         val started = RootManager.execute(
             "chmod 755 ${shellQuote(binaryPath)}",
-            "nohup ${shellQuote(binaryPath)} -l ${shellQuote("$ip:$port")} >/dev/null 2>&1 &"
+            "nohup ${shellQuote(binaryPath)} -l ${shellQuote("$ip:$port")} >> ${shellQuote(logPath(binaryPath))} 2>&1 &"
         )
 
         if (!started) {
+            appendLog(binaryPath, "Failed to launch frida-server.")
             return false
         }
 
@@ -56,7 +59,12 @@ object FridaManager {
             Thread.sleep(500)
         }
 
-        return isRunning(binaryPath)
+        val running = isRunning(binaryPath)
+        appendLog(
+            binaryPath,
+            if (running) "frida-server started successfully." else "frida-server exited during startup."
+        )
+        return running
     }
 
     /**
@@ -64,14 +72,17 @@ object FridaManager {
      */
     suspend fun stop(binaryPath: String): Boolean {
         if (!isRunning(binaryPath)) {
+            appendLog(binaryPath, "Stop requested; server is not running.")
             return true
         }
 
+        appendLog(binaryPath, "Stopping frida-server.")
         val stopped = RootManager.execute(
             "pkill -f ${shellQuote(binaryPath)}"
         )
 
         if (!stopped) {
+            appendLog(binaryPath, "Failed to send stop signal to frida-server.")
             return false
         }
 
@@ -79,7 +90,12 @@ object FridaManager {
             Thread.sleep(300)
         }
 
-        return !isRunning(binaryPath)
+        val stoppedRunningServer = !isRunning(binaryPath)
+        appendLog(
+            binaryPath,
+            if (stoppedRunningServer) "frida-server stopped." else "frida-server is still running after stop request."
+        )
+        return stoppedRunningServer
     }
 
     /**
@@ -121,6 +137,26 @@ object FridaManager {
             ?.takeIf { it.isNotEmpty() }
     }
 
+    /** Returns the most recent server stdout/stderr lines, if any. */
+    suspend fun readLogs(binaryPath: String, maxLines: Int = 500): List<String> =
+        RootManager.executeForOutput(
+            "tail -n $maxLines ${shellQuote(logPath(binaryPath))} 2>/dev/null"
+        )
+
+    /** Reads logcat only for the currently running managed Frida process. */
+    suspend fun readLogcat(binaryPath: String, maxLines: Int = 500): List<String> =
+        RootManager.executeForOutput(
+            "pid=\$(pgrep -f ${shellQuote(binaryPath)} | head -n 1); " +
+                "[ -n \"\$pid\" ] && logcat -d --pid=\"\$pid\" -t $maxLines"
+        )
+
+    private suspend fun appendLog(binaryPath: String, message: String) {
+        val timestampedMessage = "${System.currentTimeMillis()} $message"
+        RootManager.execute(
+            "printf '%s\\n' ${shellQuote(timestampedMessage)} >> ${shellQuote(logPath(binaryPath))}"
+        )
+    }
+
     /** Moves a stopped binary without changing its mode bits or ownership. */
     suspend fun moveBinary(sourcePath: String, destinationPath: String): Boolean {
         val destinationDirectory = destinationPath.substringBeforeLast('/')
@@ -132,4 +168,6 @@ object FridaManager {
     }
 
     private fun shellQuote(value: String): String = "'${value.replace("'", "'\\\"'\\\"'")}'"
+
+    private fun logPath(binaryPath: String): String = "$binaryPath.log"
 }
