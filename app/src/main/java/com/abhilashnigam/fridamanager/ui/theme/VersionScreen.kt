@@ -39,13 +39,15 @@ import androidx.compose.ui.unit.dp
 import com.abhilashnigam.fridamanager.model.FridaRelease
 import com.abhilashnigam.fridamanager.repository.FridaRepository
 import com.abhilashnigam.fridamanager.repository.InstallResult
+import com.abhilashnigam.fridamanager.network.ReleaseFetchResult
 import kotlinx.coroutines.launch
 import androidx.compose.material3.AlertDialog
 
 private sealed class LoadState {
     data object Loading : LoadState()
     data class Loaded(val releases: List<FridaRelease>) : LoadState()
-    data object NetworkError : LoadState()
+    data object Empty : LoadState()
+    data class Error(val message: String) : LoadState()
 }
 
 @Composable
@@ -82,12 +84,20 @@ fun VersionScreen(
             loadState = LoadState.Loading
             errorMessage = null
 
-            val releases = repository.availableReleases()
-
-            loadState = if (releases.isEmpty()) {
-                LoadState.NetworkError
-            } else {
-                LoadState.Loaded(releases)
+            loadState = when (val result = repository.availableReleases()) {
+                is ReleaseFetchResult.Success -> {
+                    if (result.releases.isEmpty()) LoadState.Empty
+                    else LoadState.Loaded(result.releases)
+                }
+                is ReleaseFetchResult.HttpError -> LoadState.Error(
+                    "GitHub returned HTTP ${result.statusCode}. Please try again later."
+                )
+                ReleaseFetchResult.NetworkError -> LoadState.Error(
+                    "Could not connect to GitHub. Check your network connection and try again."
+                )
+                ReleaseFetchResult.ParseError -> LoadState.Error(
+                    "GitHub returned an unexpected release response. Please try again later."
+                )
             }
         }
     }
@@ -170,8 +180,13 @@ fun VersionScreen(
                     LoadingVersions()
                 }
 
-                is LoadState.NetworkError -> {
-                    NetworkErrorState(
+                is LoadState.Empty -> {
+                    EmptyReleasesState()
+                }
+
+                is LoadState.Error -> {
+                    ReleaseErrorState(
+                        message = state.message,
                         onRetry = ::load
                     )
                 }
@@ -537,7 +552,8 @@ private fun LoadingVersions() {
  * GitHub/network failure state.
  */
 @Composable
-private fun NetworkErrorState(
+private fun ReleaseErrorState(
+    message: String,
     onRetry: () -> Unit
 ) {
     Box(
@@ -558,7 +574,7 @@ private fun NetworkErrorState(
             )
 
             Text(
-                text = "Frida Manager could not reach GitHub.",
+                text = message,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -569,6 +585,22 @@ private fun NetworkErrorState(
                 Text("RETRY")
             }
         }
+    }
+}
+
+@Composable
+private fun EmptyReleasesState() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "GitHub returned no Frida releases.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

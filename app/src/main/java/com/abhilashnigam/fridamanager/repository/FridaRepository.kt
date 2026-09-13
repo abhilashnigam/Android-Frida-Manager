@@ -5,6 +5,7 @@ import com.abhilashnigam.fridamanager.arch.ArchDetector
 import com.abhilashnigam.fridamanager.data.SettingsStore
 import com.abhilashnigam.fridamanager.model.FridaRelease
 import com.abhilashnigam.fridamanager.network.GitHubReleaseApi
+import com.abhilashnigam.fridamanager.network.ReleaseFetchResult
 import com.abhilashnigam.fridamanager.frida.FridaManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,10 +63,14 @@ class FridaRepository(
         var latest: String? = null
 
         if (installed && checkEnabled) {
-            val releases = api.fetchReleases() // null on network failure -> treated as "no update info"
-            latest = releases?.firstOrNull()?.tagName
-            if (latest != null && installedVersion.isNotBlank()) {
-                updateAvailable = latest != installedVersion
+            when (val result = api.fetchReleases()) {
+                is ReleaseFetchResult.Success -> {
+                    latest = result.releases.firstOrNull()?.tagName
+                    if (latest != null && installedVersion.isNotBlank()) {
+                        updateAvailable = latest != installedVersion
+                    }
+                }
+                else -> Unit // Update information remains unavailable; the version screen exposes the cause.
             }
         }
 
@@ -80,8 +85,7 @@ class FridaRepository(
         )
     }
 
-    suspend fun availableReleases(): List<FridaRelease> =
-        api.fetchReleases().orEmpty()
+    suspend fun availableReleases(): ReleaseFetchResult = api.fetchReleases()
 
     suspend fun setCheckForUpdates(enabled: Boolean) {
         settings.setCheckForUpdates(enabled)
