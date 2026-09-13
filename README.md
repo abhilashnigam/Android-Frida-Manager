@@ -37,6 +37,8 @@ Instead of manually downloading and managing `frida-server`, the application pro
 - Start, stop, and restart `frida-server`.
 - Check whether `frida-server` is currently running.
 - Display the installed Frida server version.
+- View Frida logs directly from Frida Manager to help troubleshoot and monitor the running Frida instance.
+- Randomise the Frida binary path to make the installation less predictable and reduce detection based on known Frida file paths.
 
 #### Server Configuration
 
@@ -70,6 +72,9 @@ Instead of manually downloading and managing `frida-server`, the application pro
 
 ![Network settings](docs/gifs/04-network-settings.gif)
 
+### Server Binary and path anonymize
+![Binary Anonymize](docs/gifs/08-binary-anaon.gif)
+
 ### Start Frida Server
 
 ![Start Frida](docs/gifs/05-start-frida.gif)
@@ -81,6 +86,9 @@ Instead of manually downloading and managing `frida-server`, the application pro
 ### Widget Server Control
 
 ![Widget control](docs/gifs/07-widget-control.gif)
+
+### Frida Logs
+![Log Viewer](docs/gifs/09-view-logs.gif)
 
 ---
 
